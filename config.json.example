@@ -1,0 +1,11 @@
+{
+  "user": "你的账号",
+  "pass": "你的密码",
+  "id": "你的身份证号后4位",
+  "passengerNames": ["乘客甲", "乘客乙", "乘客丙"],
+  "fromstation": "NJH",
+  "tostation": "TYV",
+  "time": "2025-09-25"
+}
+
+

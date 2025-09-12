@@ -1,0 +1,9 @@
+{
+  "name": "train_ticket_buyer",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "puppeteer": "^23.11.1"
+  }
+}
