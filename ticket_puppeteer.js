@@ -15,6 +15,8 @@ const passengerNames = config.passengerNames; // 要勾选的乘客姓名列表
 const fromstation = config.fromstation; // 出发地
 const tostation = config.tostation; // 目的地
 const time = config.time; // 出发日期  格式 YYYY-MM-DD
+const chromeExecutablePath = config.chromeExecutablePath || '';
+const chromeChannel = config.chromeChannel || '';
 
 function isNavigationContextError(error) {
     const message = (error && (error.message || String(error))) || '';
@@ -42,8 +44,8 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
 	const browser = await puppeteer.launch({
 		headless: false,
 		slowMo: 50,
-		// channel: 'chrome',
-        executablePath: '/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev'
+		...(chromeChannel ? { channel: chromeChannel } : {}),
+		...(chromeExecutablePath && !chromeChannel ? { executablePath: chromeExecutablePath } : {}),
 	});
 	const page = await browser.newPage();
     
