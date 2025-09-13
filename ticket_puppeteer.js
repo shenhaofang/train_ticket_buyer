@@ -78,9 +78,9 @@ function isNavigationContextError(error) {
 }
 
 async function safe$$eval(page, selector, pageFunction, ...args) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 1; attempt++) {
         try {
-            await page.waitForSelector(selector, { timeout: 15000 });
+            await page.waitForSelector(selector, { timeout: 10000 });
             return await page.$$eval(selector, pageFunction, ...args);
         } catch (error) {
             if (isNavigationContextError(error)) {
@@ -97,7 +97,7 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
 (async () => {
 	const browser = await puppeteer.launch({
 		headless: false,
-		slowMo: 50,
+		slowMo: 20,
 		...(chromeChannel ? { channel: chromeChannel } : {}),
 		...(chromeExecutablePath && !chromeChannel ? { executablePath: chromeExecutablePath } : {}),
 	});
@@ -119,6 +119,7 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
 	await page.click('#J-login');
 	await page.type('#id_card', id);
 	await page.click('#verification_code');
+    await page.focus('#code');
 	await page.waitForFunction(() => {
 		const captcha = document.querySelector('#code').value;
 		return captcha.length >= 6;
@@ -140,57 +141,120 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
     let found = 0;
 
     while (found == 0){
-        await page.click('#query_ticket');
-        await Promise.race([
-            page.waitForResponse(res => res.url().includes('leftTicket/queryG') && res.status() === 200, { timeout: 10000 }).catch(() => null),
-            new Promise(resolve => setTimeout(resolve, 2000))
-        ]);
-        await page.waitForSelector('#queryLeftTable', { timeout: 10000 }).catch(() => {});
-        const matched = await safe$$eval(page, '#queryLeftTable tr', async (trs, bookOrder, bookCount) => {
-			let firstTr = null;
-			let currentTrOrder = 999;
-			let firstBakTr = null; 
-			let currentBakTrOrder = 999;
-            let bakSeatIdx = 0;
-            for (let i = 0; i < trs.length; i++) {
-                let tr = trs[i];
-                if (tr.childElementCount == 13) {
-					console.log(tr.children[0].children[0].children[0].children[0].children[0].innerText);
-                    const trainCfg = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
-					if (trainCfg) {
-                        for (const seat in trainCfg) {
-                            console.log(trainCfg[seat].seatType, tr.children[seat].innerText);
-                            if (tr.children[seat].innerText != '--') {
-                                // if (tr.children[seat].innerText != '候补') {
-                                if (tr.children[seat].innerText == '有' || tr.children[seat].innerText.trim() >= bookCount) {
-                                    if (currentTrOrder > trainCfg[seat].sort) {
-										firstTr = tr;
-										currentTrOrder = trainCfg[seat].sort;
-									}
-                                    break;
-                                }else{
-                                    if (currentBakTrOrder > trainCfg[seat].sort) {
-                                        firstBakTr = tr;
-                                        currentBakTrOrder = trainCfg[seat].sort;
-                                        bakSeatIdx = seat;
+        try {
+            await page.click('#query_ticket');
+            await Promise.race([
+                page.waitForResponse(res => res.url().includes('leftTicket/queryG') && res.status() === 200, { timeout: 10000 }).catch(() => null),
+                new Promise(resolve => setTimeout(resolve, 2000))
+            ]);
+            try{
+                await page.waitForSelector('#queryLeftTable tr', { timeout: 1000 });
+            }catch(e){
+                continue;
+            }
+            
+            const matched = await safe$$eval(page, '#queryLeftTable tr', async (trs, bookOrder, bookCount) => {
+                let firstTr = null;
+                let currentTrOrder = 999;
+                let firstBakTr = null; 
+                let currentBakTrOrder = 999;
+                let bakSeatIdx = 0;
+                for (let i = 0; i < trs.length; i++) {
+                    let tr = trs[i];
+                    if (tr.childElementCount == 13) {
+                        console.log(tr.children[0].children[0].children[0].children[0].children[0].innerText);
+                        const trainCfg = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
+                        if (trainCfg) {
+                            for (const seat in trainCfg) {
+                                console.log(trainCfg[seat].seatType, tr.children[seat].innerText);
+                                if (tr.children[seat].innerText != '--') {
+                                    // if (tr.children[seat].innerText != '候补') {
+                                    if (tr.children[seat].innerText == '有' || tr.children[seat].innerText.trim() >= bookCount) {
+                                        if (currentTrOrder > trainCfg[seat].sort) {
+                                            firstTr = tr;
+                                            currentTrOrder = trainCfg[seat].sort;
+                                        }
+                                        break;
+                                    }else{
+                                        if (currentBakTrOrder > trainCfg[seat].sort) {
+                                            firstBakTr = tr;
+                                            currentBakTrOrder = trainCfg[seat].sort;
+                                            bakSeatIdx = seat;
+                                        }
                                     }
                                 }
-							}
+                            }
                         }
-					}
+                    }
+                }
+                if (firstTr) {
+                    firstTr.lastChild.firstChild.click();
+                    return 1;
+                }
+                if (firstBakTr) {
+                    firstBakTr.children[bakSeatIdx].click();
+                    return 2;
+                }
+                return 0;
+            }, bookOrder, passengerNames.length);
+            found = matched;
+        }catch (e) {
+            let needRelogin = 0;
+            try {
+                // const style = document.querySelector('.login-account').computedStyleMap();
+                // const style2 = document.querySelector('#J-userName').computedStyleMap();
+                // await page.waitForSelector('#J-userName', { timeout: 1000 });
+                const loginAccount = await page.$('.login-account');
+                if (loginAccount) {
+                    const display = await loginAccount.evaluate(el => getComputedStyle(el).display);
+                    if (display !== 'none') {
+                        needRelogin = 1;
+                    }
+                }
+            } catch(e) {
+                console.log(e);
+            }
+            if (!needRelogin) {
+                try {
+                    const currentUrl = page.url();
+                    if (currentUrl.includes('login')) needRelogin = 2;
+                } catch {}
+            }
+
+            if (needRelogin > 0) {
+                try {
+                    await page.type('#J-userName', user);
+                    await page.type('#J-password', pass);
+                    await page.click('#J-login');
+                    // 某些情况下需要再次填写身份证及验证码
+                    try {
+                        await page.type('#id_card', id);
+                        await page.click('#verification_code');
+                        await page.focus('#code');
+                        await page.waitForFunction(() => {
+                            const el = document.querySelector('#code');
+                            return el && el.value && el.value.length >= 6;
+                        }, { timeout: 120000 });
+                        await page.click('#sureClick');
+                    } catch {}
+                    if (needRelogin == 2){
+                        // 跳回查票页
+                        try {
+                            await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
+                        } catch {}
+                    }
+                    // 重新填写查询条件
+                    await page.waitForSelector('#query_ticket');
+                    await page.evaluate((fromstation, tostation, time) => {
+                        document.querySelector('#fromStation').value = fromstation;
+                        document.querySelector('#toStation').value = tostation;
+                        document.querySelector('#train_date').value = time;
+                    }, fromstation, tostation, time);
+                }catch (e) {
+                    console.log(e);
                 }
             }
-			if (firstTr) {
-				firstTr.lastChild.firstChild.click();
-				return 1;
-			}
-			if (firstBakTr) {
-				firstBakTr.children[bakSeatIdx].click();
-				return 2;
-			}
-			return 0;
-        }, bookOrder, passengerNames.length);
-        found = matched;
+        }
     }
     console.log('found：', found);
     if (found == 0) {
@@ -252,19 +316,29 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
                 await page.click('.btn.btn-primary.ok');
             }
         } catch (e) {
-            let needRelogin = false;
+            let needRelogin = 0;
             try {
-                await page.waitForSelector('#J-userName', { timeout: 2000 });
-                needRelogin = true;
-            } catch {}
+                // const style = document.querySelector('.login-account').computedStyleMap();
+                // const style2 = document.querySelector('#J-userName').computedStyleMap();
+                // await page.waitForSelector('#J-userName', { timeout: 1000 });
+                const loginAccount = await page.$('.login-account');
+                if (loginAccount) {
+                    const display = await loginAccount.evaluate(el => getComputedStyle(el).display);
+                    if (display !== 'none') {
+                        needRelogin = 1;
+                    }
+                }
+            } catch(e) {
+                console.log(e);
+            }
             if (!needRelogin) {
                 try {
                     const currentUrl = page.url();
-                    if (currentUrl.includes('login')) needRelogin = true;
+                    if (currentUrl.includes('login')) needRelogin = 2;
                 } catch {}
             }
 
-            if (needRelogin) {
+            if (needRelogin > 0) {
                 try {
                     await page.type('#J-userName', user);
                     await page.type('#J-password', pass);
@@ -273,29 +347,39 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
                     try {
                         await page.type('#id_card', id);
                         await page.click('#verification_code');
+                        await page.focus('#code');
                         await page.waitForFunction(() => {
                             const el = document.querySelector('#code');
                             return el && el.value && el.value.length >= 6;
                         }, { timeout: 120000 });
                         await page.click('#sureClick');
                     } catch {}
-                    // 跳回查票页
-                    try {
-                        await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
-                    } catch {}
+                    if (needRelogin == 2){
+                        // 跳回查票页
+                        try {
+                            await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
+                        } catch {}
+                    }
                     // 重新填写查询条件
-                    try {
-                        await page.waitForSelector('#query_ticket');
-                        await page.evaluate((fromstation, tostation, time) => {
-                            document.querySelector('#fromStation').value = fromstation;
-                            document.querySelector('#toStation').value = tostation;
-                            document.querySelector('#train_date').value = time;
-                        }, fromstation, tostation, time);
-                    } catch {}
+                    await page.waitForSelector('#query_ticket');
+                    await page.evaluate((fromstation, tostation, time) => {
+                        document.querySelector('#fromStation').value = fromstation;
+                        document.querySelector('#toStation').value = tostation;
+                        document.querySelector('#train_date').value = time;
+                    }, fromstation, tostation, time);
                     // 再次查票并点击预订/候补
                     let foundAgain = 0;
                     while (foundAgain == 0) {
                         await page.click('#query_ticket');
+                        await Promise.race([
+                            page.waitForResponse(res => res.url().includes('leftTicket/queryG') && res.status() === 200, { timeout: 10000 }).catch(() => null),
+                            new Promise(resolve => setTimeout(resolve, 2000))
+                        ]);
+                        try{
+                            await page.waitForSelector('#queryLeftTable tr', { timeout: 1000 });
+                        }catch(e){
+                            continue;
+                        }
                         const matchedAgain = await safe$$eval(page, '#queryLeftTable tr', async (trs, bookOrder, bookCount) => {
                             let firstTr = null;
                             let currentTrOrder = 999;
@@ -392,7 +476,9 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
                             await page.click('.btn.btn-primary.ok');
                         }
                     }
-                } catch {}
+                } catch(e) {
+                    console.log(e);
+                }
             }else{
                 await Promise.all([
                     page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => null),
