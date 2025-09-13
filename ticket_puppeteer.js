@@ -17,6 +17,60 @@ const tostation = config.tostation; // 目的地
 const time = config.time; // 出发日期  格式 YYYY-MM-DD
 const chromeExecutablePath = config.chromeExecutablePath || '';
 const chromeChannel = config.chromeChannel || '';
+const ticket2Buy = config.ticket2Buy || []; 
+
+const seatMap = {
+    '商务座': '1',
+    '优选一等座': '2',
+    '一等座': '3',
+    '二等座': '4',
+    '高级软卧': '5',
+    '软卧': '6',
+    '硬卧': '7',
+    '软座': '8',
+    '硬座': '9',
+    '无座': '10',
+};
+
+if (ticket2Buy.length == 0) {
+    console.log('请在 config.json 中配置 ticket2Buy 字段，指定要购买的席别优先级');
+    process.exit(1);
+}
+
+let bookOrder = {};
+//   "ticket2Buy": [
+//     {
+//       "trainNum": "Z196",
+//       "sort": 1,
+//       "seatType": "硬卧"
+//     },
+//     {
+//       "trainNum": "Z268",
+//       "sort": 2,
+//       "seatType": "硬卧"
+//     }
+//   ]
+ticket2Buy.forEach(item => {
+    if (item.trainNum && item.sort && item.seatType && seatMap[item.seatType]) {
+        if (!bookOrder[item.trainNum]) {
+            bookOrder[item.trainNum] = {
+                [seatMap[item.seatType]]: {
+                    'sort': item.sort,
+                    'seatType': item.seatType
+                }
+            };
+        }
+        bookOrder[item.trainNum][seatMap[item.seatType]] = {
+            'sort': item.sort,
+            'seatType': item.seatType
+        };
+    }else{
+        console.log('ticket2Buy 配置错误，请检查 trainNum, sort, seatType 字段及 seatType 的值是否正确', item, seatMap[item.seatType]);
+    }
+});
+
+console.log('bookOrder:', bookOrder);
+// process.exit(0);
 
 function isNavigationContextError(error) {
     const message = (error && (error.message || String(error))) || '';
@@ -92,34 +146,37 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
             new Promise(resolve => setTimeout(resolve, 2000))
         ]);
         await page.waitForSelector('#queryLeftTable', { timeout: 10000 }).catch(() => {});
-        const matched = await safe$$eval(page, '#queryLeftTable tr', async trs => {
-			let bookOrder = {
-				'Z196': 1,
-				'Z268': 2,
-			};
+        const matched = await safe$$eval(page, '#queryLeftTable tr', async (trs, bookOrder, bookCount) => {
 			let firstTr = null;
 			let currentTrOrder = 999;
 			let firstBakTr = null; 
 			let currentBakTrOrder = 999;
+            let bakSeatIdx = 0;
             for (let i = 0; i < trs.length; i++) {
                 let tr = trs[i];
                 if (tr.childElementCount == 13) {
 					console.log(tr.children[0].children[0].children[0].children[0].children[0].innerText);
-					if (bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText]) {
-						console.log(tr.children[7].innerText);
-						if (tr.children[7].innerText != '--') {
-							if (tr.children[7].innerText != '候补') {
-								if (currentTrOrder > bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText]) {
-									firstTr = tr;
-									currentTrOrder = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
-								}
-							}else{
-								if (currentBakTrOrder > bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText]) {
-									firstBakTr = tr;
-									currentBakTrOrder = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
-								}
+                    const trainCfg = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
+					if (trainCfg) {
+                        for (const seat in trainCfg) {
+                            console.log(trainCfg[seat].seatType, tr.children[seat].innerText);
+                            if (tr.children[seat].innerText != '--') {
+                                // if (tr.children[seat].innerText != '候补') {
+                                if (tr.children[seat].innerText == '有' || tr.children[seat].innerText.trim() >= bookCount) {
+                                    if (currentTrOrder > trainCfg[seat].sort) {
+										firstTr = tr;
+										currentTrOrder = trainCfg[seat].sort;
+									}
+                                    break;
+                                }else{
+                                    if (currentBakTrOrder > trainCfg[seat].sort) {
+                                        firstBakTr = tr;
+                                        currentBakTrOrder = trainCfg[seat].sort;
+                                        bakSeatIdx = seat;
+                                    }
+                                }
 							}
-						}
+                        }
 					}
                 }
             }
@@ -128,11 +185,11 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
 				return 1;
 			}
 			if (firstBakTr) {
-				firstBakTr.children[7].click();
+				firstBakTr.children[bakSeatIdx].click();
 				return 2;
 			}
 			return 0;
-        });
+        }, bookOrder, passengerNames.length);
         found = matched;
     }
     console.log('found：', found);
@@ -146,7 +203,7 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
             if (found == 1) {
                 await page.waitForSelector('#normal_passenger_id', { timeout: 15000 });
                 // 勾选匹配姓名列表的乘客（normal 列表用 label for=... 关联 input）
-                const clicked = await page.$$eval('#normal_passenger_id label', (labels, names) => {
+                const clicked = await safe$$eval(page, '#normal_passenger_id label', (labels, names) => {
                     let count = 0;
                     for (const label of labels) {
                         const title = (label.textContent || '').trim();
@@ -169,9 +226,10 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
             } else if (found == 2) {
                 await page.waitForSelector('#passenge_list', { timeout: 15000 });
                 // 勾选匹配姓名列表的乘客
-                await page.$$eval('#passenge_list label', (labels, names) => {
+                await safe$$eval(page, '#passenge_list label', (labels, names) => {
                     for (const label of labels) {
                         const title = (label.getAttribute('title') || '').trim();
+                        console.log(title);
                         if (!names.some(n => title.includes(n))) continue;
 
                         console.log(title);
@@ -238,29 +296,34 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
                     let foundAgain = 0;
                     while (foundAgain == 0) {
                         await page.click('#query_ticket');
-                        const matchedAgain = await page.$$eval('tr', async trs => {
-                            let bookOrder = {
-                                'Z196': 1,
-                                'Z268': 2,
-                            };
+                        const matchedAgain = await safe$$eval(page, '#queryLeftTable tr', async (trs, bookOrder, bookCount) => {
                             let firstTr = null;
                             let currentTrOrder = 999;
                             let firstBakTr = null;
                             let currentBakTrOrder = 999;
+                            let bakSeatIdx = 0;
                             for (let i = 0; i < trs.length; i++) {
                                 let tr = trs[i];
                                 if (tr.childElementCount == 13) {
-                                    if (bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText]) {
-                                        if (tr.children[7].innerText != '--') {
-                                            if (tr.children[7].innerText != '候补') {
-                                                if (currentTrOrder > bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText]) {
-                                                    firstTr = tr;
-                                                    currentTrOrder = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
-                                                }
-                                            } else {
-                                                if (currentBakTrOrder > bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText]) {
-                                                    firstBakTr = tr;
-                                                    currentBakTrOrder = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
+                                    console.log(tr.children[0].children[0].children[0].children[0].children[0].innerText);
+                                    const trainCfg = bookOrder[tr.children[0].children[0].children[0].children[0].children[0].innerText];
+                                    if (trainCfg) {
+                                        for (const seat in trainCfg) {
+                                            console.log(trainCfg[seat].seatType, tr.children[seat].innerText);
+                                            if (tr.children[seat].innerText != '--') {
+                                                // if (tr.children[seat].innerText != '候补') {
+                                                if (tr.children[seat].innerText == '有' || tr.children[seat].innerText.trim() >= bookCount) {
+                                                    if (currentTrOrder > trainCfg[seat].sort) {
+                                                        firstTr = tr;
+                                                        currentTrOrder = trainCfg[seat].sort;
+                                                    }
+                                                    break;
+                                                }else{
+                                                    if (currentBakTrOrder > trainCfg[seat].sort) {
+                                                        firstBakTr = tr;
+                                                        currentBakTrOrder = trainCfg[seat].sort;
+                                                        bakSeatIdx = seat;
+                                                    }
                                                 }
                                             }
                                         }
@@ -272,16 +335,16 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
                                 return 1;
                             }
                             if (firstBakTr) {
-                                firstBakTr.children[7].click();
+                                firstBakTr.children[bakSeatIdx].click();
                                 return 2;
                             }
                             return 0;
-                        });
+                        }, bookOrder, passengerNames.length);
                         foundAgain = matchedAgain;
                         if (foundAgain == 1) {
                             await page.waitForSelector('#normal_passenger_id', { timeout: 15000 });
                             // 勾选匹配姓名列表的乘客（normal 列表用 label for=... 关联 input）
-                            const clicked = await page.$$eval('#normal_passenger_id label', (labels, names) => {
+                            const clicked = await safe$$eval(page, '#normal_passenger_id label', (labels, names) => {
                                 let count = 0;
                                 for (const label of labels) {
                                     const title = (label.textContent || '').trim();
@@ -304,7 +367,7 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
                         } else if (foundAgain == 2) {
                             await page.waitForSelector('#passenge_list', { timeout: 10000 });
                             // 勾选匹配姓名列表的乘客
-                            await page.$$eval('#passenge_list label', (labels, names) => {
+                            await safe$$eval(page, '#passenge_list label', (labels, names) => {
                                 for (const label of labels) {
                                     const title = (label.getAttribute('title') || '').trim();
                                     if (!names.some(n => title.includes(n))) continue;
@@ -340,8 +403,4 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
         }
         break;
     }
-	// await page.waitForSelector('#normalPassenger_0');
-    // await page.click('#normalPassenger_0');
-    
-    // await page.click('#qr_submit_id');
 })()

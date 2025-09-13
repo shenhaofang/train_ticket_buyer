@@ -1,4 +1,6 @@
 {
+  "chromeExecutablePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "chromeChannel": "chrome",
   "user": "你的账号",
   "pass": "你的密码",
   "id": "你的身份证号后4位",
@@ -6,8 +8,18 @@
   "fromstation": "NJH",
   "tostation": "TYV",
   "time": "2025-09-25",
-  "chromeExecutablePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "chromeChannel": ""
+  "ticket2Buy": [
+    {
+      "trainNum": "Z196",
+      "sort": 1,
+      "seatType": "硬卧"
+    },
+    {
+      "trainNum": "Z268",
+      "sort": 2,
+      "seatType": "硬卧"
+    }
+  ]
 }
 
 
