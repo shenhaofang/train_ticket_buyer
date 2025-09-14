@@ -8,6 +8,7 @@
   "fromstation": "NJH",
   "tostation": "TYV",
   "time": "2025-09-25",
+  "headless": false,
   "ticket2Buy": [
     {
       "trainNum": "Z196",

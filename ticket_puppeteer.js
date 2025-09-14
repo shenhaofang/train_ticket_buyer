@@ -18,6 +18,7 @@ const time = config.time; // 出发日期  格式 YYYY-MM-DD
 const chromeExecutablePath = config.chromeExecutablePath || '';
 const chromeChannel = config.chromeChannel || '';
 const ticket2Buy = config.ticket2Buy || []; 
+const headless = config.headless || false;
 
 const seatMap = {
     '商务座': '1',
@@ -35,6 +36,18 @@ const seatMap = {
 if (ticket2Buy.length == 0) {
     console.log('请在 config.json 中配置 ticket2Buy 字段，指定要购买的席别优先级');
     process.exit(1);
+}
+
+let codeFilePath = path.join(__dirname, 'captcha.txt');
+if (headless) {
+    if (!fs.existsSync(codeFilePath)) {
+        console.log('请在无头模式下运行前，先创建 captcha.txt 文件，用于输入验证码');
+        process.exit(1);
+    }
+    // 清空验证码文件内容
+    fs.writeFileSync(codeFilePath, '', 'utf8');
+} else {
+    codeFilePath = '';
 }
 
 let bookOrder = {};
@@ -94,7 +107,7 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
     throw new Error(`safe$$eval: retries exceeded for selector ${selector}`);
 }
 
-async function checkReLogin(page) {
+async function checkReLogin(page, codeFilePath = '') {
     let needRelogin = 0;
     try {
         const loginAccount = await page.$('.login-account');
@@ -120,16 +133,96 @@ async function checkReLogin(page) {
             await page.type('#J-password', pass);
             await page.click('#J-login');
             // 某些情况下需要再次填写身份证及验证码
-            try {
-                await page.type('#id_card', id);
-                await page.click('#verification_code');
-                await page.focus('#code');
-                await page.waitForFunction(() => {
-                    const el = document.querySelector('#code');
-                    return el && el.value && el.value.length >= 6;
-                }, { timeout: 120000 });
-                await page.click('#sureClick');
-            } catch {}
+            await page.type('#id_card', id);
+            if (codeFilePath) {
+                for (let i = 0; i < 10; i++) {
+                    let code = '';
+                    // 清空验证码文件内容，等待重新输入
+                    fs.writeFileSync(codeFilePath, '', 'utf8');
+                    if (i%2 == 0) {
+                        await page.click('#verification_code');
+                    }
+                    await page.focus('#code');
+                    while (code.length < 6) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        code = fs.readFileSync(codeFilePath, 'utf8').trim();
+                    }
+                    await page.type('#code', code);
+                    await page.click('#sureClick');
+                    // 验证码填写正确
+                    try {
+                        await page.waitForResponse(async res => {
+                            console.log('[RESPONSE1]', res.url(), res.status());
+                            if (!res.url().includes('passport/web/login') || res.status() !== 200) {
+                                return false;
+                            }
+                            if (res.url().includes('login/userLogin')){
+                                return true;
+                            }
+                            // 检查是否为预检请求
+                            const request = res.request();
+                            if (request.method() === 'OPTIONS') {
+                                return false;
+                            }
+
+                            const josnBody = (await res.json());
+                            console.log('[RESPONSE2]', res.url(), res.status(), josnBody);
+                            return josnBody.result_code == 0;
+                        }, { timeout: 5000 });
+                    }catch (e) {
+                        console.log(e);
+                        const message = (e && (e.message || String(e))) || '';
+                        if (message.includes('Timed out')) {
+                            // 清空已填写的验证码，重新填写
+                            await page.evaluate(() => { const el = document.querySelector('#code'); if (el) el.value = ''; });
+                            continue;
+                        }
+                    }
+                    break;
+                }
+            }else{
+                for (let i = 0; i < 10; i++) {
+                    if (i%2 == 0) {
+                        await page.click('#verification_code');
+                    }
+                    await page.focus('#code');
+                    await page.waitForFunction(() => {
+                        const el = document.querySelector('#code');
+                        return el && el.value && el.value.length >= 6;
+                    }, { timeout: 120000 });
+                    await page.click('#sureClick');
+                    // 验证码填写正确
+                    try {
+                        await page.waitForResponse(async res => {
+                            console.log('[RESPONSE1]', res.url(), res.status());
+                            if (!res.url().includes('passport/web/login') || res.status() !== 200) {
+                                return false;
+                            }
+                            if (res.url().includes('login/userLogin')){
+                                return true;
+                            }
+                            // 检查是否为预检请求
+                            const request = res.request();
+                            if (request.method() === 'OPTIONS') {
+                                return false;
+                            }
+
+                            const josnBody = (await res.json());
+                            console.log('[RESPONSE2]', res.url(), res.status(), josnBody);
+                            return josnBody.result_code == 0;
+                        }, { timeout: 5000 });
+                    }catch (e) {
+                        console.log(e);
+                        const message = (e && (e.message || String(e))) || '';
+                        if (message.includes('Timed out')) {
+                            // 清空已填写的验证码，重新填写
+                            await page.evaluate(() => { const el = document.querySelector('#code'); if (el) el.value = ''; });
+                            continue;
+                        }
+                    }
+                    break;
+                }
+            }
             if (needRelogin == 2){
                 // 跳回查票页
                 try {
@@ -152,13 +245,12 @@ async function checkReLogin(page) {
 
 (async () => {
 	const browser = await puppeteer.launch({
-		headless: false,
+		headless: headless,
 		slowMo: 20,
 		...(chromeChannel ? { channel: chromeChannel } : {}),
 		...(chromeExecutablePath && !chromeChannel ? { executablePath: chromeExecutablePath } : {}),
 	});
 	const page = await browser.newPage();
-    
     page.on('console', msg => { try { console.log('[PAGE]', msg.type(), msg.text()); } catch {} });
     page.on('pageerror', err => console.error('[PAGEERROR]', err));
     page.on('error', err => console.error('[PAGE-ERR]', err));
@@ -167,23 +259,106 @@ async function checkReLogin(page) {
     browser.on('disconnected', () => console.error('[BROWSER] disconnected'));
     process.on('unhandledRejection', e => console.error('[UNHANDLED REJECTION]', e));
     process.on('uncaughtException', e => console.error('[UNCAUGHT EXCEPTION]', e));
-
+    page.setViewport({
+        width: 1920,
+        height: 1080,
+        deviceScaleFactor: 1,
+    })
 	page.setDefaultTimeout(0)
 	await page.goto('https://kyfw.12306.cn/otn/resources/login.html');
 	await page.type('#J-userName', user)
 	await page.type('#J-password', pass)
 	await page.click('#J-login');
 	await page.type('#id_card', id);
-	await page.click('#verification_code');
-    await page.focus('#code');
-	await page.waitForFunction(() => {
-		const captcha = document.querySelector('#code').value;
-		return captcha.length >= 6;
-	});
-	await Promise.all([
-		page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => null),
-		page.click('#sureClick')
-	]);
+    if (codeFilePath) {
+        for (let i = 0; i < 10; i++) {
+            let code = '';
+            // 清空验证码文件内容，等待重新输入
+            fs.writeFileSync(codeFilePath, '', 'utf8');
+            if (i%2 == 0) {
+                await page.click('#verification_code');
+            }
+            await page.focus('#code');
+            while (code.length < 6) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                code = fs.readFileSync(codeFilePath, 'utf8').trim();
+            }
+            await page.type('#code', code);
+            await page.click('#sureClick');
+            // 验证码填写正确
+            try {
+                await page.waitForResponse(async res => {
+                    console.log('[RESPONSE1]', res.url(), res.status());
+                    if (!res.url().includes('passport/web/login') || res.status() !== 200) {
+                        return false;
+                    }
+                    if (res.url().includes('login/userLogin')){
+                        return true;
+                    }
+                    // 检查是否为预检请求
+                    const request = res.request();
+                    if (request.method() === 'OPTIONS') {
+                        return false;
+                    }
+
+                    const josnBody = (await res.json());
+                    console.log('[RESPONSE2]', res.url(), res.status(), josnBody);
+                    return josnBody.result_code == 0;
+                }, { timeout: 5000 });
+            }catch (e) {
+                console.log(e);
+                const message = (e && (e.message || String(e))) || '';
+                if (message.includes('Timed out')) {
+                    // 清空已填写的验证码，重新填写
+                    await page.evaluate(() => { const el = document.querySelector('#code'); if (el) el.value = ''; });
+                    continue;
+                }
+            }
+            break;
+        }
+    }else{
+        for (let i = 0; i < 10; i++) {
+            if (i%2 == 0) {
+                await page.click('#verification_code');
+            }
+            await page.focus('#code');
+            await page.waitForFunction(() => {
+                const captcha = document.querySelector('#code').value;
+                return captcha.length >= 6;
+            });
+            page.click('#sureClick')
+            // 验证码填写正确
+            try {
+                await page.waitForResponse(async res => {
+                    console.log('[RESPONSE1]', res.url(), res.status());
+                    if (!res.url().includes('passport/web/login') || res.status() !== 200) {
+                        return false;
+                    }
+                    if (res.url().includes('login/userLogin')){
+                        return true;
+                    }
+                    // 检查是否为预检请求
+                    const request = res.request();
+                    if (request.method() === 'OPTIONS') {
+                        return false;
+                    }
+
+                    const josnBody = (await res.json());
+                    console.log('[RESPONSE2]', res.url(), res.status(), josnBody);
+                    return josnBody.result_code == 0;
+                }, { timeout: 3000 });
+            }catch (e) {
+                console.log(e);
+                const message = (e && (e.message || String(e))) || '';
+                if (message.includes('Timed out')) {
+                    // 清空已填写的验证码，重新填写
+                    await page.evaluate(() => { const el = document.querySelector('#code'); if (el) el.value = ''; });
+                    continue;
+                }
+            }
+            break;
+        }
+    }
 	// await page.waitForSelector('#link_for_ticket');
 	// await page.click('#link_for_ticket');
 	// await page.waitForSelector('#query_ticket');
@@ -257,7 +432,7 @@ async function checkReLogin(page) {
                 found = matched;
             }catch (e) {
                 console.log(e);
-                const relogined = await checkReLogin(page)
+                const relogined = await checkReLogin(page, codeFilePath)
                 // 只有自动跳转会登录页的情况下，才继续循环，否则登录后会直接进入乘客确认页
                 if (relogined == 2) {
                     continue;
@@ -351,7 +526,7 @@ async function checkReLogin(page) {
                 }, fromstation, tostation, time);
                 continue;
             }catch{
-                const relogined = await checkReLogin(page)
+                const relogined = await checkReLogin(page, codeFilePath)
                 if (relogined == 2) {
                     found = 0;
                     continue;

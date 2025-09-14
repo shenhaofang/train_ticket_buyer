@@ -3356,4 +3356,6 @@ node ticket_puppeteer.js
 ```
 如果报 “Could not find Chrome”，优先用 channel: 'chrome' 或设置 PUPPETEER_EXECUTABLE_PATH。也可安装受管 Chrome：npx puppeteer browsers install chrome
 
-运行后会自动打开chrome并输入账号密码，会在手机验证码页面停留，将受到的验证码填入后，脚本会继续运行，直到购买成功
+- 无头模式
+    - 如果config中headless为false则关闭无头模式，运行后会自动打开chrome并输入账号密码，会在手机验证码页面停留，将受到的验证码填入后，脚本会继续运行，直到购买成功
+    - 如果config中headless为true则打开无头模式，运行后会自动打开chrome并输入账号密码，收到手机验证码后，需在captcha.txt中输入验证码（后续可以考虑用接码服务接到验证码自动填入），脚本会继续运行，直到购买成功
