@@ -362,7 +362,9 @@ async function checkReLogin(page, codeFilePath = '') {
 	// await page.waitForSelector('#link_for_ticket');
 	// await page.click('#link_for_ticket');
 	// await page.waitForSelector('#query_ticket');
+    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => null);
     await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
+    await page.waitForSelector('#query_ticket');
 	await page.evaluate((fromstation, tostation, time) => {
 		document.querySelector('#fromStation').value = fromstation;
 		document.querySelector('#toStation').value = tostation;
