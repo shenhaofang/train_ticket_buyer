@@ -19,6 +19,7 @@ const chromeExecutablePath = config.chromeExecutablePath || '';
 const chromeChannel = config.chromeChannel || '';
 const ticket2Buy = config.ticket2Buy || []; 
 const headless = config.headless || false;
+const larkTriggerWebhookUrl = config.larkTriggerWebhookUrl || '';
 
 const seatMap = {
     '商务座': '1',
@@ -107,13 +108,36 @@ async function safe$$eval(page, selector, pageFunction, ...args) {
     throw new Error(`safe$$eval: retries exceeded for selector ${selector}`);
 }
 
+// 飞书通知
+// curl -X POST -H "Content-Type: application/json" \
+// -d '{"msg_type":"text","content":{"title":"测试标题","text":"测试内容"}}' \
+// lark-trigger-webhook-url
+async function LarkNotify(title, text) {
+    if (!larkTriggerWebhookUrl) {
+        console.log('larkTriggerWebhookUrl 未配置');
+        return;
+    }
+    const url = larkTriggerWebhookUrl;
+    const data = {
+        msg_type: 'text',
+        content: { title, text }
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        body: JSON.stringify(data)
+    });
+    console.log(response);
+}
+
 async function checkReLogin(page, codeFilePath = '') {
     let needRelogin = 0;
     try {
         const loginAccount = await page.$('.login-account');
         if (loginAccount) {
             const display = await loginAccount.evaluate(el => getComputedStyle(el).display);
-            if (display !== 'none') {
+            const currentUrl = page.url();
+            if (display !== 'none' && !currentUrl.includes('login')) {
                 needRelogin = 1;
             }
         }
@@ -128,6 +152,8 @@ async function checkReLogin(page, codeFilePath = '') {
     }
 
     if (needRelogin > 0) {
+        // 飞书通知
+        LarkNotify('12306 自动购票', '需要重新登录');
         try {
             await page.type('#J-userName', user);
             await page.type('#J-password', pass);
@@ -530,6 +556,25 @@ async function checkReLogin(page, codeFilePath = '') {
             try{
                 const errMsg = (e && (e.message || String(e))) || '';
                 if (errMsg.includes('Waiting') && errMsg.includes('#passenge_list') && page.url().includes('leftTicket/init')) {
+                    try {
+                        const loginAccount = await page.$('.login-account');
+                        if (loginAccount) {
+                            const display = await loginAccount.evaluate(el => getComputedStyle(el).display);
+                            const currentUrl = page.url();
+                            if (display !== 'none' && !currentUrl.includes('login')) {
+                                const relogined = await checkReLogin(page, codeFilePath)
+                                if (relogined == 2) {
+                                    found = 0;
+                                    continue;
+                                }
+                                if (relogined == 1) {
+                                    continue;
+                                }
+                            }
+                        }
+                    } catch(e) {
+                        console.log(e);
+                    }
                     found = 0;
                     continue;
                 }else{
@@ -563,6 +608,7 @@ async function checkReLogin(page, codeFilePath = '') {
         }
         await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => null)
         console.log('order success, please check your ticket and payfor it in 12306!');
+        LarkNotify('12306 自动购票', '购票成功!请尽快到 12306 app上支付!');
         break;
     }
 

@@ -20,7 +20,8 @@
       "sort": 2,
       "seatType": "硬卧"
     }
-  ]
+  ],
+  "larkTriggerWebhookUrl": ""
 }
 
 
