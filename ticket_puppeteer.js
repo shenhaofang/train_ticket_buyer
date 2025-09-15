@@ -266,7 +266,7 @@ async function checkReLogin(page, codeFilePath = '') {
     process.on('unhandledRejection', e => console.error('[UNHANDLED REJECTION]', e));
     process.on('uncaughtException', e => console.error('[UNCAUGHT EXCEPTION]', e));
     page.setViewport({
-        width: 1920,
+        width: 1200,
         height: 1080,
         deviceScaleFactor: 1,
     })
@@ -561,6 +561,7 @@ async function checkReLogin(page, codeFilePath = '') {
                 continue;
             }
         }
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => null)
         console.log('order success, please check your ticket and payfor it in 12306!');
         break;
     }
