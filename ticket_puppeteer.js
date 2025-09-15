@@ -141,12 +141,14 @@ async function checkReLogin(page, codeFilePath = '') {
                     fs.writeFileSync(codeFilePath, '', 'utf8');
                     if (i%2 == 0) {
                         await page.click('#verification_code');
+                        console.log('please input captcha code in file:', codeFilePath);
                     }
                     await page.focus('#code');
                     while (code.length < 6) {
                         await new Promise(resolve => setTimeout(resolve, 1000));
                         code = fs.readFileSync(codeFilePath, 'utf8').trim();
                     }
+                    console.log('read code:', code);
                     await page.type('#code', code);
                     await page.click('#sureClick');
                     // 验证码填写正确
@@ -184,6 +186,7 @@ async function checkReLogin(page, codeFilePath = '') {
                 for (let i = 0; i < 10; i++) {
                     if (i%2 == 0) {
                         await page.click('#verification_code');
+                        console.log('please input captcha code in browser...');
                     }
                     await page.focus('#code');
                     await page.waitForFunction(() => {
@@ -226,9 +229,11 @@ async function checkReLogin(page, codeFilePath = '') {
             if (needRelogin == 2){
                 // 跳回查票页
                 try {
+                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => null);
                     await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
                 } catch {}
             }
+            console.log('relogin ok');
             // 重新填写查询条件
             await page.waitForSelector('#query_ticket');
             await page.evaluate((fromstation, tostation, time) => {
@@ -245,6 +250,7 @@ async function checkReLogin(page, codeFilePath = '') {
 
 (async () => {
 	const browser = await puppeteer.launch({
+        // headless: false,
 		headless: headless,
 		slowMo: 20,
 		...(chromeChannel ? { channel: chromeChannel } : {}),
@@ -277,12 +283,14 @@ async function checkReLogin(page, codeFilePath = '') {
             fs.writeFileSync(codeFilePath, '', 'utf8');
             if (i%2 == 0) {
                 await page.click('#verification_code');
+                console.log('please input captcha code in file:', codeFilePath);
             }
-            await page.focus('#code');
+            // await page.focus('#code');
             while (code.length < 6) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 code = fs.readFileSync(codeFilePath, 'utf8').trim();
             }
+            console.log('read code:', code);
             await page.type('#code', code);
             await page.click('#sureClick');
             // 验证码填写正确
@@ -320,6 +328,7 @@ async function checkReLogin(page, codeFilePath = '') {
         for (let i = 0; i < 10; i++) {
             if (i%2 == 0) {
                 await page.click('#verification_code');
+                console.log('please input captcha code in browser...');
             }
             await page.focus('#code');
             await page.waitForFunction(() => {
@@ -350,7 +359,7 @@ async function checkReLogin(page, codeFilePath = '') {
             }catch (e) {
                 console.log(e);
                 const message = (e && (e.message || String(e))) || '';
-                if (message.includes('Timed out')) {
+                if (message.includes('Timed out') || message.includes('Timeout')) {
                     // 清空已填写的验证码，重新填写
                     await page.evaluate(() => { const el = document.querySelector('#code'); if (el) el.value = ''; });
                     continue;
@@ -363,6 +372,7 @@ async function checkReLogin(page, codeFilePath = '') {
 	// await page.click('#link_for_ticket');
 	// await page.waitForSelector('#query_ticket');
     await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => null);
+    console.log('relogin ok, goto ticket page...');
     await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
     await page.waitForSelector('#query_ticket');
 	await page.evaluate((fromstation, tostation, time) => {
@@ -370,13 +380,15 @@ async function checkReLogin(page, codeFilePath = '') {
 		document.querySelector('#toStation').value = tostation;
 		document.querySelector('#train_date').value = time;
 	}, fromstation, tostation, time)
-
+    console.log('ticket info filled: ', fromstation, tostation, time);
     let found = 0;
 
     while (true){
         if (found == 0){
             try {
                 await page.click('#query_ticket');
+                console.log('query_ticket clicked');
+                // 等待查询结果，或超时继续
                 await Promise.race([
                     page.waitForResponse(res => res.url().includes('leftTicket/queryG') && res.status() === 200, { timeout: 10000 }).catch(() => null),
                     new Promise(resolve => setTimeout(resolve, 2000))
@@ -409,7 +421,7 @@ async function checkReLogin(page, codeFilePath = '') {
                                                 currentTrOrder = trainCfg[seat].sort;
                                             }
                                             break;
-                                        }else if (tr.children[seat].innerText == '候补') {
+                                        }else if (tr.children[seat].innerText == '候补' && !tr.children[seat].getAttribute('style').includes('grey')) {
                                             if (currentBakTrOrder > trainCfg[seat].sort) {
                                                 firstBakTr = tr;
                                                 currentBakTrOrder = trainCfg[seat].sort;
@@ -516,7 +528,13 @@ async function checkReLogin(page, codeFilePath = '') {
         } catch (e) {
             console.log(e);
             try{
-                await page.waitForSelector('#ERROR', { timeout: 3000 });
+                const errMsg = (e && (e.message || String(e))) || '';
+                if (errMsg.includes('Waiting') && errMsg.includes('#passenge_list') && page.url().includes('leftTicket/init')) {
+                    found = 0;
+                    continue;
+                }else{
+                    await page.waitForSelector('#ERROR', { timeout: 3000 });
+                }
                 found = 0;
                 await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
                 // 重新填写查询条件
@@ -543,6 +561,8 @@ async function checkReLogin(page, codeFilePath = '') {
                 continue;
             }
         }
+        console.log('order success, please check your ticket and payfor it in 12306!');
         break;
     }
+
 })()
