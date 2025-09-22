@@ -577,8 +577,6 @@ async function checkReLogin(page, codeFilePath = '') {
                     }
                     found = 0;
                     continue;
-                }else{
-                    await page.waitForSelector('#ERROR', { timeout: 3000 });
                 }
                 found = 0;
                 await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
