@@ -408,6 +408,7 @@ async function checkReLogin(page, codeFilePath = '') {
 	}, fromstation, tostation, time)
     console.log('ticket info filled: ', fromstation, tostation, time);
     let found = 0;
+    let selSeatType = '';
 
     while (true){
         if (found == 0){
@@ -431,6 +432,8 @@ async function checkReLogin(page, codeFilePath = '') {
                     let firstBakTr = null; 
                     let currentBakTrOrder = 999;
                     let bakSeatIdx = 0;
+                    let firstSeatType = '';
+                    let firstBakSeatType = '';
                     for (let i = 0; i < trs.length; i++) {
                         let tr = trs[i];
                         if (tr.childElementCount == 13) {
@@ -444,12 +447,14 @@ async function checkReLogin(page, codeFilePath = '') {
                                         if (tr.children[seat].innerText == '有' || tr.children[seat].innerText.trim() >= bookCount) {
                                             if (currentTrOrder > trainCfg[seat].sort) {
                                                 firstTr = tr;
+                                                firstSeatType = trainCfg[seat].seatType;
                                                 currentTrOrder = trainCfg[seat].sort;
                                             }
                                             break;
                                         }else if (tr.children[seat].innerText == '候补' && !tr.children[seat].getAttribute('style').includes('grey')) {
                                             if (currentBakTrOrder > trainCfg[seat].sort) {
                                                 firstBakTr = tr;
+                                                firstBakSeatType = trainCfg[seat].seatType;
                                                 currentBakTrOrder = trainCfg[seat].sort;
                                                 bakSeatIdx = seat;
                                             }
@@ -461,15 +466,16 @@ async function checkReLogin(page, codeFilePath = '') {
                     }
                     if (firstTr) {
                         firstTr.lastChild.firstChild.click();
-                        return 1;
+                        return [1, firstSeatType];
                     }
                     if (firstBakTr) {
                         firstBakTr.children[bakSeatIdx].click();
-                        return 2;
+                        return [2, firstBakSeatType];
                     }
-                    return 0;
+                    return [0, ''];
                 }, bookOrder, passengerNames.length);
-                found = matched;
+                found = matched[0];
+                selSeatType = matched[1];
             }catch (e) {
                 console.log(e);
                 const relogined = await checkReLogin(page, codeFilePath)
@@ -478,7 +484,7 @@ async function checkReLogin(page, codeFilePath = '') {
                     continue;
                 }
             }
-            console.log('found：', found);
+            console.log('found：', found, 'selSeatType：', selSeatType);
             if (found == 0) {
                 await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
                 // 重新填写查询条件
@@ -512,6 +518,49 @@ async function checkReLogin(page, codeFilePath = '') {
                     }
                     return count;
                 }, passengerNames);
+                
+                // selSeatType为当前选中的席别，页面中有内嵌js变量init_seatTypes，格式如下
+                // var init_seatTypes=[{'end_station_name':null,'end_time':null,'id':'D','start_station_name':null,'start_time':null,'value':'\u4F18\u9009\u4E00\u7B49\u5EA7'},{'end_station_name':null,'end_time':null,'id':'M','start_station_name':null,'start_time':null,'value':'\u4E00\u7B49\u5EA7'},{'end_station_name':null,'end_time':null,'id':'O','start_station_name':null,'start_time':null,'value':'\u4E8C\u7B49\u5EA7'},{'end_station_name':null,'end_time':null,'id':'9','start_station_name':null,'start_time':null,'value':'\u5546\u52A1\u5EA7'}];
+                // 先通过value找到对应的id，然后为每个乘客选择对应的id的席别
+                let selSeatTypeID = await page.evaluate((selSeatType) => {
+                    try {
+                        const types = (window.init_seatTypes || []);
+                        const hit = types.find(t => (t && (t.value === selSeatType || (t.value || '').includes(selSeatType))));
+                        return hit && hit.id ? String(hit.id) : '';
+                    } catch (_) {
+                        return '';
+                    }
+                }, selSeatType);
+                if (!selSeatTypeID) {
+                    try {
+                        selSeatTypeID = await page.$eval('#seatType_1', (el, selSeatType) => {
+                            const options = Array.from(el?.options || []);
+                            const opt = options.find(o => (o.textContent || '').includes(selSeatType));
+                            return opt ? String(opt.value) : '';
+                        }, selSeatType);
+                    } catch (_) {}
+                }
+                if (!selSeatTypeID) {
+                    console.warn('[WARN] 未找到席别ID，跳过席别选择：', selSeatType);
+                } else {
+                    for (let i = 0; i < passengerNames.length; i++) {
+                        const selector = `#seatType_${i+1}`;
+                        try {
+                            await page.select(selector, selSeatTypeID);
+                        } catch (_) {
+                            try {
+                                await page.evaluate((s, v) => {
+                                    const el = document.querySelector(s);
+                                    if (el) {
+                                        el.value = v;
+                                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                                    }
+                                }, selector, selSeatTypeID);
+                            } catch (_) {}
+                        }
+                    }
+                }
+                // await page.select('#seatType_1', '硬卧');
                 console.log('normal clicked:', clicked);
                 await page.click('#submitOrder_id');
                 console.log('submitOrder_id clicked');
@@ -580,6 +629,7 @@ async function checkReLogin(page, codeFilePath = '') {
                                 const relogined = await checkReLogin(page, codeFilePath)
                                 if (relogined == 2) {
                                     found = 0;
+                                    selSeatType = '';
                                     continue;
                                 }
                                 if (relogined == 1) {
@@ -591,9 +641,11 @@ async function checkReLogin(page, codeFilePath = '') {
                         console.log(e);
                     }
                     found = 0;
+                    selSeatType = '';
                     continue;
                 }
                 found = 0;
+                selSeatType = '';
                 await page.goto('https://kyfw.12306.cn/otn/leftTicket/init');
                 // 重新填写查询条件
                 await page.waitForSelector('#query_ticket');
@@ -607,6 +659,7 @@ async function checkReLogin(page, codeFilePath = '') {
                 const relogined = await checkReLogin(page, codeFilePath)
                 if (relogined == 2) {
                     found = 0;
+                    selSeatType = '';
                     continue;
                 }
                 if (relogined == 1) {
