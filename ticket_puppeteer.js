@@ -550,6 +550,21 @@ async function checkReLogin(page, codeFilePath = '') {
                 await page.waitForSelector('.btn.btn-primary.ok', { timeout: 5000 });
                 await page.click('.btn.btn-primary.ok');
                 console.log('btn-primary.ok clicked');
+                await page.waitForResponse(async res => {
+                    console.log('[RESPONSE]', res.url(), res.status());
+                    if (!res.url().includes('potn/afterNate/confirmHB') || res.status() !== 200) {
+                        return false;
+                    }
+                    // 检查是否为预检请求
+                    const request = res.request();
+                    if (request.method() === 'OPTIONS') {
+                        return false;
+                    }
+
+                    const josnBody = (await res.json());
+                    console.log('[RESPONSE]', res.url(), res.status(), josnBody);
+                    return josnBody.data.flag == true;
+                }, { timeout: 5000 });
             }
         } catch (e) {
             console.log(e);
