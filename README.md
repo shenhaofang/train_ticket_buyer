@@ -1,4 +1,67 @@
-- 安装 Node.js 20+（x64；用 arm64 机器也选对应架构）。验证：node -v 和 node -p "process.platform + ' ' + process.arch" 应输出 win32 x64 或 win32 arm64。
+- 安装 Node.js 20+（请按自身 CPU 架构选择 x64 或 arm64）。
+    - 版本与架构要求：建议 20 LTS 或更新版本；Apple Silicon 选 arm64，Intel 选 x64。
+    - 快速验证：
+        ```bash
+        node -v
+        node -p "process.platform + ' ' + process.arch"
+        # 期望示例：darwin arm64 / darwin x64 / win32 x64 / linux x64
+        ```
+    - macOS（推荐）：
+        - 使用 Homebrew 安装（Apple Silicon 默认前缀 /opt/homebrew）：
+            ```bash
+            brew update
+            brew install node@20
+            # 如需优先使用该版本，加入 PATH（Apple Silicon）：
+            echo 'export PATH="/opt/homebrew/opt/node@20/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+            # Intel Mac 如为 /usr/local：
+            # echo 'export PATH="/usr/local/opt/node@20/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+            node -v && node -p "process.platform + ' ' + process.arch"
+            ```
+        - 使用 nvm（便于多版本管理）：
+            ```bash
+            # 安装 nvm
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+            # 重新打开终端或 source ~/.zshrc 后：
+            nvm install 20
+            nvm alias default 20
+            nvm use 20
+            node -v && node -p "process.platform + ' ' + process.arch"
+            ```
+    - Windows：
+        - 官方安装包：前往 [Node.js 官方下载页](https://nodejs.org/)，下载 20+ LTS（x64 或 arm64）MSI 并下一步完成安装。
+        - 使用 nvm-windows（推荐多版本）：
+            1) 从 [nvm-windows Releases](https://github.com/coreybutler/nvm-windows/releases) 下载并安装 nvm-setup.
+            2) 打开命令行：
+            ```powershell
+            nvm install 20.18.0 64
+            nvm use 20.18.0
+            node -v
+            node -p "process.platform + ' ' + process.arch" # 期望 win32 x64
+            ```
+    - Linux（Debian/Ubuntu 示例）：
+        - 使用 NodeSource 源：
+            ```bash
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+            node -v && node -p "process.platform + ' ' + process.arch"
+            ```
+        - 使用 nvm：同上 nvm 安装步骤，然后 `nvm install 20`。
+    - 国内网络优化（可选）：
+        - 切换 npm 源（提升依赖安装速度）：
+            ```bash
+            npm config set registry https://registry.npmmirror.com
+            # 恢复官方源：
+            # npm config delete registry
+            ```
+        - 代理（如需）：确保 shell/系统代理生效，或为 npm 设置代理。
+    - 常见问题：
+        - zsh: command not found: node → 重新打开终端或 `source ~/.zshrc`，检查 PATH 是否包含 Node 安装目录。
+        - brew 装了多个版本 → `brew unlink node && brew link --overwrite node@20`。
+        - 权限/系统目录冲突 → 优先使用 nvm 管理 Node，避免 `sudo npm -g`。
+    - 卸载/切换版本：
+        - Homebrew：`brew uninstall node@20`；
+        - nvm：`nvm ls` 查看版本，`nvm use <ver>` 切换，`nvm uninstall <ver>` 卸载。
+    
 
 - 参照config.json.example 创建 config.json。其中 fromstation 和 tostation为出发站和目的地，可以从12306网站获取。
 ![alt text](image.png)
