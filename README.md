@@ -3413,11 +3413,11 @@
     - 资中西: ZZE
 
 - 安装和运行
-```cmd 
-npm install
-node ticket_puppeteer.js
-```
-如果报 “Could not find Chrome”，优先用 channel: 'chrome' 或设置 PUPPETEER_EXECUTABLE_PATH。也可安装受管 Chrome：npx puppeteer browsers install chrome
+    ```cmd 
+    npm install
+    node ticket_puppeteer.js
+    ```
+    如果报 “Could not find Chrome”，优先用 channel: 'chrome' 或设置 PUPPETEER_EXECUTABLE_PATH。也可安装受管 Chrome：npx puppeteer browsers install chrome
 
 - 无头模式
     - 如果config.json中headless为false则关闭无头模式，运行后会自动打开chrome并输入账号密码，会在手机验证码页面停留，将受到的验证码填入后，脚本会继续运行，直到购买成功
